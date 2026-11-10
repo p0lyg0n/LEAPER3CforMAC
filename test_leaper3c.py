@@ -308,6 +308,16 @@ class TestLeaper3C(unittest.TestCase):
                 self.assertEqual(info["size_bytes"], 32768)
                 self.assertEqual(info["pin_count"], 28)
                 self.assertTrue(info["is_uv_eprom"])
+
+            # Verify quick status check skips cleanly if usb_lock is held and detects disconnect
+            self.assertTrue(state.usb_lock.acquire(blocking=False))
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status?quick=1") as r:
+                    self.assertEqual(json.loads(r.read().decode("utf-8")), {"busy": True})
+            finally:
+                state.usb_lock.release()
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status?quick=1") as r:
+                self.assertFalse(json.loads(r.read().decode("utf-8"))["connected"])
         finally:
             srv.shutdown()
             srv.server_close()

@@ -90,6 +90,7 @@ class UiState:
         self.job_lock = threading.Lock()
         self.last_buffer: bytes = b""
         self.last_filename: str = "readback.bin"
+        self.cached_chip_count: int = 0
         self.job: dict[str, Any] = {
             "id": 0,
             "running": False,
@@ -114,8 +115,12 @@ class UiState:
         with self.job_lock:
             self.job["logs"] = []
 
-    def get_status(self) -> dict[str, Any]:
-        with self.usb_lock:
+    def get_status(self, quick: bool = False) -> dict[str, Any]:
+        acquired = self.usb_lock.acquire(blocking=not quick)
+        if not acquired:
+            return {"busy": True}
+        backend = None
+        try:
             try:
                 backend = self.backend_factory()
             except leaper3c.LeaperError as exc:
@@ -123,8 +128,9 @@ class UiState:
             try:
                 lp = leaper3c.Leaper3C(backend)
                 info = lp.get_info()
-                st = lp.read_status(timeout=5000)
-                chips = lp.list_chips()
+                st = lp.read_status(timeout=1500 if quick else 5000)
+                if not quick or self.cached_chip_count == 0:
+                    self.cached_chip_count = len(lp.list_chips())
                 loc = getattr(backend, "usb_location", "mock")
                 return {
                     "connected": True,
@@ -132,7 +138,7 @@ class UiState:
                     "banner": info.banner,
                     "firmware": info.fw_version,
                     "table_base": f"0x{info.table_base_addr:04X}",
-                    "chip_count": len(chips),
+                    "chip_count": self.cached_chip_count,
                     "status_hex": st.hex(" "),
                 }
             except Exception as exc:
@@ -141,6 +147,8 @@ class UiState:
                 close_fn = getattr(backend, "close", None)
                 if close_fn:
                     close_fn()
+        finally:
+            self.usb_lock.release()
 
     def get_chips(self) -> tuple[list[dict[str, Any]], str]:
         with self.usb_lock:
@@ -931,14 +939,20 @@ function renderStatusData(st) {
   updateHwButtons();
 }
 
-async function refreshStatus() {
+let statusChecking = false;
+
+async function refreshStatus(quick = false) {
+  if (statusChecking) return;
+  statusChecking = true;
   const badge = document.getElementById("hwBadge");
   const meta = document.getElementById("hwMeta");
   try {
-    const st = await api("/api/status");
+    const st = await api(quick ? "/api/status?quick=1" : "/api/status");
+    if (st.busy) return;
+    const prevConnected = hwConnected;
     lastStatusData = st;
     renderStatusData(st);
-    if ((st.connected && chipSource !== "hardware") || allChips.length === 0) {
+    if ((st.connected && chipSource !== "hardware") || (!st.connected && prevConnected) || allChips.length === 0) {
       await loadChips();
     }
   } catch (e) {
@@ -949,6 +963,8 @@ async function refreshStatus() {
     meta.innerHTML = t("hwOfflineHtml")(e.message);
     updateHwButtons();
     if (allChips.length === 0) await loadChips().catch(() => {});
+  } finally {
+    statusChecking = false;
   }
 }
 
@@ -1156,6 +1172,9 @@ async function pollJob() {
     if (j.result && j.result.download_ready) {
       document.getElementById("btnDownload").disabled = false;
     }
+    if (j.error) {
+      refreshStatus(true);
+    }
   }
 }
 
@@ -1167,10 +1186,13 @@ setTheme(curTheme);
 setLanguage(curLang);
 drawSocketSvg(28);
 updateHwButtons();
-refreshStatus();
+refreshStatus(false);
 syncLogs(true);
+setInterval(() => {
+  if (!pollTimer && !statusChecking) refreshStatus(true);
+}, 2000);
 window.addEventListener("focus", () => {
-  if (!hwConnected && !pollTimer) refreshStatus();
+  if (!pollTimer && !statusChecking) refreshStatus(true);
 });
 </script>
 </body>
@@ -1207,8 +1229,9 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                 self.end_headers()
                 self.wfile.write(raw)
                 return
-            if self.path == "/api/status":
-                self._send_json(state.get_status())
+            if self.path == "/api/status" or self.path.startswith("/api/status?"):
+                quick = "quick=1" in self.path
+                self._send_json(state.get_status(quick=quick))
                 return
             if self.path == "/api/chips":
                 try:
