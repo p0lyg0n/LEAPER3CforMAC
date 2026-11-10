@@ -559,6 +559,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .kv { font-size: 12px; line-height: 1.6; color: var(--muted); }
   .kv strong { color: var(--text); }
   .warnbox { font-size: 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); padding: 9px 10px; border-radius: 7px; margin-top: 10px; line-height: 1.5; }
+  .errbox { font-size: 12px; background: var(--badge-err-bg); border: 1.5px solid var(--badge-err-border); color: var(--badge-err-text); padding: 9px 11px; border-radius: 7px; margin-bottom: 8px; line-height: 1.55; }
   .infobox { font-size: 12px; background: var(--badge-ok-bg); border: 1px solid var(--badge-ok-border); color: var(--badge-ok-text); padding: 9px 11px; border-radius: 7px; margin-top: 8px; line-height: 1.5; }
   .infobox.plain { background: var(--drop-bg); border-color: var(--border); color: var(--text); }
   .btn-xs { padding: 4px 9px; font-size: 11px; border-radius: 5px; }
@@ -604,8 +605,11 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <main>
   <div>
     <div class="card">
-      <h2 data-i18n="sec1">1. プログラマ＆ターゲットIC選択</h2>
-      <div id="hwMeta" class="kv" data-i18n="hwChecking">接続確認中...</div>
+      <h2 data-i18n="sec1">1. プログラマ接続 ＆ ターゲットIC選択</h2>
+      <div id="hwMeta" class="errbox" data-i18n="hwChecking">接続確認中...</div>
+      <div id="hwReconnectWrap" style="margin-bottom:8px;display:none;">
+        <button class="primary" style="width:100%;" onclick="refreshStatus()" data-i18n="btnReconnect">LEAPER-3C に再接続（再検索）</button>
+      </div>
       <label for="chipFilter" data-i18n="lblChipFilter">IC 検索（型番・メーカー）</label>
       <input id="chipFilter" placeholder="例: 27C256, 27C64, 39SF010A" oninput="filterChips()" />
       <label for="chipSelect" data-i18n="lblChipSelect">ターゲット IC</label>
@@ -654,12 +658,13 @@ HTML_PAGE = r"""<!DOCTYPE html>
     </div>
     <div class="card">
       <h2 data-i18n="sec4">4. デバイス操作</h2>
+      <div id="opsOfflineBanner" class="errbox" style="display:none;margin-bottom:10px;" data-i18n="opsOfflineMsg">⚠ ライター未接続のためデバイス操作は無効です（ファイル読込・.nes分割・挿し方図の確認はできます）。USBと12V電源を入れて「再検索」を押してください。</div>
       <div class="row">
-        <button onclick="runAction('blank-check')" data-i18n="btnBlank">ブランクチェック</button>
-        <button onclick="runAction('read')" data-i18n="btnRead">ICから読出し</button>
-        <button onclick="runAction('verify')" data-i18n="btnVerify">ベリファイ（照合）</button>
-        <button id="btnErase" class="danger" onclick="runAction('erase')" data-i18n="btnErase">消去（イレース）</button>
-        <button class="primary" onclick="runAction('program')" data-i18n="btnProgram">書込み（プログラム）</button>
+        <button data-hw-btn="1" disabled onclick="runAction('blank-check')" data-i18n="btnBlank">ブランクチェック</button>
+        <button data-hw-btn="1" disabled onclick="runAction('read')" data-i18n="btnRead">ICから読出し</button>
+        <button data-hw-btn="1" disabled onclick="runAction('verify')" data-i18n="btnVerify">ベリファイ（照合）</button>
+        <button data-hw-btn="1" disabled id="btnErase" class="danger" onclick="runAction('erase')" data-i18n="btnErase">消去（イレース）</button>
+        <button data-hw-btn="1" disabled class="primary" onclick="runAction('program')" data-i18n="btnProgram">書込み（プログラム）</button>
         <button id="btnDownload" disabled onclick="downloadLast()" data-i18n="btnDownload">読出し結果を保存 (.bin)</button>
       </div>
       <div class="progress-wrap"><div id="progBar" class="progress-bar"></div></div>
@@ -691,8 +696,10 @@ const I18N = {
     themeDark: "ダーク (オリジナル)",
     badgeChecking: "USB接続を確認中...",
     btnRescan: "再検索",
-    sec1: "1. プログラマ＆ターゲットIC選択",
+    btnReconnect: "LEAPER-3C に再接続（再検索）",
+    sec1: "1. プログラマ接続 ＆ ターゲットIC選択",
     hwChecking: "接続確認中...",
+    opsOfflineMsg: "⚠ ライター未接続のためデバイス操作は無効です（ファイル読込・.nes分割・挿し方図の確認はできます）。USBと12V電源を入れて「再検索」を押してください。",
     lblChipFilter: "IC 検索（型番・メーカー）",
     chipFilterPh: "例: 27C256, 27C64, 39SF010A",
     lblChipSelect: "ターゲット IC",
@@ -725,7 +732,8 @@ const I18N = {
     disconnectedBadge: "未接続",
     connErrBadge: "接続エラー",
     notFound: "LEAPER-3C が見つかりません",
-    hwMetaHtml: st => `<strong>${st.banner}</strong> | USB: ${st.location} | 対応IC: ${st.chip_count}種<br/>ステータス 0x42: <code>${st.status_hex}</code>`,
+    hwMetaHtml: st => `<strong>✓ 接続済み — ${st.banner} (FW ${st.firmware})</strong><br/>USB: ${st.location} | 対応IC: ${st.chip_count}種 | ステータス 0x42: <code>${st.status_hex}</code>`,
+    hwOfflineHtml: msg => `<strong>⚠ ライター未接続</strong><br/>${msg}`,
     chipMetaHtml: info => {
       const base = `容量: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | 種類: <strong>${info.is_uv_eprom ? "UV-EPROM (27C系)" : "Flash / EEPROM"}</strong>`;
       return info.source === "offline"
@@ -754,8 +762,10 @@ const I18N = {
     themeDark: "Dark (Original)",
     badgeChecking: "Checking USB...",
     btnRescan: "Rescan",
-    sec1: "1. Programmer & Target IC",
+    btnReconnect: "Reconnect to LEAPER-3C (Rescan)",
+    sec1: "1. Programmer Connection & Target IC",
     hwChecking: "Checking connection...",
+    opsOfflineMsg: "⚠ Programmer is disconnected — hardware operations are disabled (file loading, .nes splitting, and socket guide still work). Connect USB + 12V power and click Rescan.",
     lblChipFilter: "Search IC (Part / Vendor)",
     chipFilterPh: "e.g. 27C256, 27C64, 39SF010A",
     lblChipSelect: "Target IC",
@@ -788,7 +798,8 @@ const I18N = {
     disconnectedBadge: "Disconnected",
     connErrBadge: "Connection Error",
     notFound: "LEAPER-3C not found",
-    hwMetaHtml: st => `<strong>${st.banner}</strong> | USB: ${st.location} | Chips: ${st.chip_count}<br/>Status 0x42: <code>${st.status_hex}</code>`,
+    hwMetaHtml: st => `<strong>✓ Connected — ${st.banner} (FW ${st.firmware})</strong><br/>USB: ${st.location} | Chips: ${st.chip_count} | Status 0x42: <code>${st.status_hex}</code>`,
+    hwOfflineHtml: msg => `<strong>⚠ Programmer Disconnected</strong><br/>${msg}`,
     chipMetaHtml: info => {
       const base = `Size: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | Type: <strong>${info.is_uv_eprom ? "UV-EPROM (27C)" : "Flash / EEPROM"}</strong>`;
       return info.source === "offline"
@@ -868,9 +879,26 @@ function renderInspectNotice(info) {
 
 let allChips = [];
 let chipSource = "none";
+let hwConnected = false;
 let currentChip = null;
 let loadedBuffer = { name: "", b64: "", size: 0 };
 let pollTimer = null;
+
+function updateHwButtons() {
+  document.querySelectorAll("[data-hw-btn]").forEach(btn => {
+    if (!hwConnected) {
+      btn.disabled = true;
+    } else if (btn.id === "btnErase") {
+      btn.disabled = Boolean(currentChip && currentChip.is_uv_eprom);
+    } else {
+      btn.disabled = false;
+    }
+  });
+  const opsBanner = document.getElementById("opsOfflineBanner");
+  if (opsBanner) opsBanner.style.display = hwConnected ? "none" : "block";
+  const recWrap = document.getElementById("hwReconnectWrap");
+  if (recWrap) recWrap.style.display = hwConnected ? "none" : "block";
+}
 
 async function api(url, body) {
   const res = await fetch(url, body ? {
@@ -886,15 +914,21 @@ async function api(url, body) {
 function renderStatusData(st) {
   const badge = document.getElementById("hwBadge");
   const meta = document.getElementById("hwMeta");
+  hwConnected = Boolean(st.connected);
   if (st.connected) {
     badge.className = "badge ok";
     badge.textContent = t("connectedBadge")(st.firmware);
+    meta.className = "infobox";
+    meta.style.marginTop = "0";
+    meta.style.marginBottom = "8px";
     meta.innerHTML = t("hwMetaHtml")(st);
   } else {
     badge.className = "badge err";
     badge.textContent = t("disconnectedBadge");
-    meta.textContent = st.error || t("notFound");
+    meta.className = "errbox";
+    meta.innerHTML = t("hwOfflineHtml")(st.error || t("notFound"));
   }
+  updateHwButtons();
 }
 
 async function refreshStatus() {
@@ -908,9 +942,12 @@ async function refreshStatus() {
       await loadChips();
     }
   } catch (e) {
+    hwConnected = false;
     badge.className = "badge err";
     badge.textContent = t("connErrBadge");
-    meta.textContent = e.message;
+    meta.className = "errbox";
+    meta.innerHTML = t("hwOfflineHtml")(e.message);
+    updateHwButtons();
     if (allChips.length === 0) await loadChips().catch(() => {});
   }
 }
@@ -950,7 +987,7 @@ async function onSelectChip() {
     const info = await api("/api/chip-info", spec);
     currentChip = info;
     document.getElementById("chipMeta").innerHTML = t("chipMetaHtml")(info);
-    document.getElementById("btnErase").disabled = info.is_uv_eprom;
+    updateHwButtons();
     drawSocketSvg(info.pin_count);
   } catch (e) {
     document.getElementById("chipMeta").textContent = e.message;
@@ -1129,8 +1166,12 @@ function downloadLast() {
 setTheme(curTheme);
 setLanguage(curLang);
 drawSocketSvg(28);
+updateHwButtons();
 refreshStatus();
 syncLogs(true);
+window.addEventListener("focus", () => {
+  if (!hwConnected && !pollTimer) refreshStatus();
+});
 </script>
 </body>
 </html>
