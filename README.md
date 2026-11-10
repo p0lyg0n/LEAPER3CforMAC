@@ -54,11 +54,14 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
-2. **Install global CLI commands (`leaper3c`, `minipro`) & optional FireMinipro bridge**:
+2. **Install global CLI commands (`leaper3c`, `minipro`) & optional Applications launcher / FireMinipro bridge**:
 ```sh
 # Links /opt/homebrew/bin/leaper3c and /opt/homebrew/bin/minipro
 # If /Applications/fireminipro.app is installed, it also patches the bridge automatically
 ./install_fireminipro_bridge.sh
+
+# (Optional) Install "/Applications/LEAPER-3C Web UI.app" for 1-click launch from Finder/Spotlight
+./install_webui_app.sh
 ```
 
 3. **Verify hardware connection**:
@@ -77,12 +80,12 @@ leaper3c info
 
 ### How to Use
 
-#### Option A: Built-in Local Web UI (`leaper3c ui`) — Recommended
-1. Connect 12V power + USB and start the browser UI:
+#### Option A: Built-in Local Web UI (`leaper3c ui` / Applications App) — Recommended
+1. Connect 12V power + USB and double-click **`LEAPER-3C Web UI`** in `/Applications` (installed via `./install_webui_app.sh`), or start it from the terminal:
    ```sh
    leaper3c ui
    ```
-   Your default browser opens `http://127.0.0.1:8765/` (stop the server anytime with `Ctrl + C`).
+   Your default browser opens `http://127.0.0.1:8765/` automatically.
 2. Confirm the top-right badge shows **Connected (FW 1.30)** (`接続済み`). You can switch **Language** (`日本語` / `English`) and **Theme** (`Famicom`, `NES`, `Light`, `Gray`, `Dark`) from the header.
 3. Search and choose your **Target IC** (e.g., `27C256 @ 27XXX`), then insert the chip into the **right-side `SLAVE` socket** following the **28-pin / 32-pin SVG diagram** (notch facing UP toward LCD, bottom edge flush with the lever side).
 4. Drag & drop a `.bin` or `.nes` file into section 3:
@@ -218,11 +221,15 @@ python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
 
-2. **コマンドリンク作成＆GUI連携セットアップ（推奨）**:
+2. **コマンドリンク作成＆GUI・ランチャーアプリ設定（推奨）**:
 ```sh
 # /opt/homebrew/bin/leaper3c と /opt/homebrew/bin/minipro を作成します
 # /Applications/fireminipro.app がある場合は LEAPER-3C 用ブリッジ設定も自動で行います
 ./install_fireminipro_bridge.sh
+
+# （推奨）アプリケーションフォルダに "/Applications/LEAPER-3C Web UI.app" を作成します
+# Finder や Launchpad / Spotlight からクリックするだけで Web UI 起動＋ブラウザ表示ができます
+./install_webui_app.sh
 ```
 > これを実行すると、次回以降どのディレクトリからでも `leaper3c` / `leaper3c ui` を直接実行できるようになります。
 
@@ -242,8 +249,8 @@ leaper3c info
 
 ### 使い方（3通りの操作方法）
 
-#### 方法1: 専用ローカル Web UI（`leaper3c ui`）で使う（一番手軽・おすすめ）
-1. 12V 電源＋USB を繋いだ状態で、ターミナルから Web UI を起動します（終了は `Ctrl + C`）:
+#### 方法1: 専用ローカル Web UI（アプリクリック起動 / `leaper3c ui`）で使う（一番手軽・おすすめ）
+1. 12V 電源＋USB を繋いだ状態で、**アプリケーションフォルダの `LEAPER-3C Web UI` をダブルクリック**（`./install_webui_app.sh` で作成済み）するか、ターミナルから次を実行します:
    ```sh
    leaper3c ui
    ```
