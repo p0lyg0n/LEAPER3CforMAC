@@ -1057,6 +1057,7 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
             raw = json.dumps(obj).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             self.wfile.write(raw)
@@ -1071,6 +1072,7 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                 raw = HTML_PAGE.encode("utf-8")
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
                 self.send_header("Content-Length", str(len(raw)))
                 self.end_headers()
                 self.wfile.write(raw)
@@ -1126,7 +1128,16 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
 
 def serve_ui(port: int = 8765, open_browser: bool = True) -> int:
     state = UiState()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
+    except OSError as exc:
+        print(
+            f"[ERROR] ポート {port} はすでに起動中の別の Web UI が使用中です ({exc})。\n"
+            f"最新版を反映するには古いプロセスを停止してから再起動してください:\n"
+            f"  pkill -f 'leaper3c.py ui' ; leaper3c ui",
+            flush=True,
+        )
+        return 1
     actual_port = server.server_address[1]
     url = f"http://127.0.0.1:{actual_port}/"
     print(f"LEAPER-3C Web UI running at {url} (Ctrl+C to stop)")
