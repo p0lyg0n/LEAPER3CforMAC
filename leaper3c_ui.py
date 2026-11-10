@@ -553,7 +553,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .badge.err { background: var(--badge-err-bg); color: var(--badge-err-text); border: 1px solid var(--badge-err-border); }
   main { max-width: 1200px; margin: 18px auto; padding: 0 18px; display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 16px; }
-  .card h2 { margin: 0 0 10px; font-size: 14px; color: var(--accent); text-transform: uppercase; letter-spacing: .6px; }
+  .card h2 { margin: 0 0 12px; font-size: 14px; color: var(--text); display: flex; align-items: center; gap: 8px; letter-spacing: .3px; }
+  .step-pill { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-text); border: 1.5px solid var(--header-border); font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 999px; letter-spacing: .6px; box-shadow: 0 2px 0 rgba(0,0,0,0.18); flex-shrink: 0; }
+  .hw-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; font-weight: 600; }
   input, select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--input-bg); color: var(--text); font-size: 13px; }
   button { padding: 9px 13px; border-radius: 7px; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -606,18 +608,17 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <option value="dark" data-i18n="themeDark">ダーク (オリジナル)</option>
       </select>
     </div>
-    <span id="hwBadge" class="badge" data-i18n="badgeChecking">USB接続を確認中...</span>
-    <button onclick="refreshStatus()" data-i18n="btnRescan">再検索</button>
   </div>
 </header>
 <main>
   <div>
     <div class="card">
-      <h2 data-i18n="sec1">1. プログラマ接続 ＆ ターゲットIC選択</h2>
-      <div id="hwMeta" class="errbox" data-i18n="hwChecking">接続確認中...</div>
-      <div id="hwReconnectWrap" style="margin-bottom:8px;display:none;">
-        <button class="primary" style="width:100%;" onclick="refreshStatus()" data-i18n="btnReconnect">LEAPER-3C に再接続（再検索）</button>
+      <h2><span class="step-pill">STEP 1</span><span data-i18n="sec1">プログラマ接続 ＆ ターゲットIC選択</span></h2>
+      <div class="hw-bar">
+        <span id="hwBadge" class="badge" data-i18n="badgeChecking">USB接続を確認中...</span>
+        <button id="btnRescan" onclick="refreshStatus(false)" data-i18n="btnRescan">再検索</button>
       </div>
+      <div id="hwMeta" class="errbox" data-i18n="hwChecking">接続確認中...</div>
       <label for="chipFilter" data-i18n="lblChipFilter">IC 検索（型番・メーカー）</label>
       <input id="chipFilter" placeholder="例: 27C256, 27C64, 39SF010A" oninput="filterChips()" />
       <label for="chipSelect" data-i18n="lblChipSelect">ターゲット IC</label>
@@ -625,7 +626,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <div id="chipMeta" class="kv" style="margin-top:8px;">-</div>
     </div>
     <div class="card">
-      <h2 data-i18n="sec2">2. スレーブソケット挿し方ガイド</h2>
+      <h2><span class="step-pill">STEP 2</span><span data-i18n="sec2">スレーブソケット挿し方ガイド</span></h2>
       <div style="display:flex;justify-content:center;padding:4px 0;">
         <svg id="socketSvg" width="250" height="190" viewBox="0 0 250 190" xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
@@ -639,7 +640,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   </div>
   <div>
     <div class="card">
-      <h2 data-i18n="sec3">3. ROM / バイナリファイル読込（.bin / .nes）</h2>
+      <h2><span class="step-pill">STEP 3</span><span data-i18n="sec3">ROM / バイナリファイル読込（.bin / .nes）</span></h2>
       <div id="dropzone" class="dropzone" onclick="document.getElementById('fileInput').click()">
         <div data-i18n-html="dropHtml">ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択</div>
         <div class="dropsub" data-i18n-html="dropSub"><strong>✓ .nes は読込時に iNES / NES 2.0 ヘッダ（16B 等）を自動削除</strong>し、PRG / CHR に自動分割します</div>
@@ -665,7 +666,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       </div>
     </div>
     <div class="card">
-      <h2 data-i18n="sec4">4. デバイス操作</h2>
+      <h2><span class="step-pill">STEP 4</span><span data-i18n="sec4">デバイス操作</span></h2>
       <div id="opsOfflineBanner" class="errbox" style="display:none;margin-bottom:10px;" data-i18n="opsOfflineMsg">⚠ ライター未接続のためデバイス操作は無効です（ファイル読込・.nes分割・挿し方図の確認はできます）。USBと12V電源を入れて「再検索」を押してください。</div>
       <div class="row">
         <button data-hw-btn="1" disabled onclick="runAction('blank-check')" data-i18n="btnBlank">ブランクチェック</button>
@@ -686,7 +687,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
       <pre id="logBox">準備完了。</pre>
     </div>
     <div class="card">
-      <h2 data-i18n="sec5">5. HEX ダンプ表示</h2>
+      <h2><span class="step-pill">STEP 5</span><span data-i18n="sec5">HEX ダンプ表示</span></h2>
       <pre id="hexBox" data-i18n="hexEmpty">（データ未読込）</pre>
     </div>
   </div>
@@ -704,16 +705,15 @@ const I18N = {
     themeDark: "ダーク (オリジナル)",
     badgeChecking: "USB接続を確認中...",
     btnRescan: "再検索",
-    btnReconnect: "LEAPER-3C に再接続（再検索）",
-    sec1: "1. プログラマ接続 ＆ ターゲットIC選択",
+    sec1: "プログラマ接続 ＆ ターゲットIC選択",
     hwChecking: "接続確認中...",
-    opsOfflineMsg: "⚠ ライター未接続のためデバイス操作は無効です（ファイル読込・.nes分割・挿し方図の確認はできます）。USBと12V電源を入れて「再検索」を押してください。",
+    opsOfflineMsg: "⚠ ライター未接続のためデバイス操作は無効です（ファイル読込・.nes分割・挿し方図の確認はできます）。USBと12V電源を入れて STEP 1 の「再検索」を押してください。",
     lblChipFilter: "IC 検索（型番・メーカー）",
     chipFilterPh: "例: 27C256, 27C64, 39SF010A",
     lblChipSelect: "ターゲット IC",
-    sec2: "2. スレーブソケット挿し方ガイド",
+    sec2: "スレーブソケット挿し方ガイド",
     warnHtml: "<strong>注意:</strong><br/>• <strong>DC 12V ACアダプタ</strong> 接続＆電源ON必須<br/>• 挿すのは <strong>右側「SLAVE」ソケット</strong><br/>• <strong>切り欠き（1番ピン）は上（LCD側）</strong>、本体位置は <strong>下端（レバー側）揃え</strong>（28ピンICは上側2ピン空き）",
-    sec3: "3. ROM / バイナリファイル読込（.bin / .nes）",
+    sec3: "ROM / バイナリファイル読込（.bin / .nes）",
     dropHtml: "ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択",
     dropSub: "<strong>✓ .nes は読込時に iNES / NES 2.0 ヘッダ（16B 等）を自動削除</strong>し、PRG / CHR に自動分割します",
     dropAnywhere: "（画面上のどこにドロップしても読み込めます）",
@@ -724,7 +724,7 @@ const I18N = {
     padFf: "0xFF で余白を埋める",
     chkErase: "書込み前に消去（Flash専用）",
     chkVerify: "書込み後にベリファイ（照合）",
-    sec4: "4. デバイス操作",
+    sec4: "デバイス操作",
     btnBlank: "ブランクチェック",
     btnRead: "ICから読出し",
     btnVerify: "ベリファイ（照合）",
@@ -735,6 +735,7 @@ const I18N = {
     btnLogClear: "ログ消去",
     progIdle: "待機中",
     logReady: "準備完了。",
+    sec5: "HEX ダンプ表示",
     hexEmpty: "（データ未読込）",
     connectedBadge: fw => `接続済み (FW ${fw})`,
     disconnectedBadge: "未接続",
@@ -770,16 +771,15 @@ const I18N = {
     themeDark: "Dark (Original)",
     badgeChecking: "Checking USB...",
     btnRescan: "Rescan",
-    btnReconnect: "Reconnect to LEAPER-3C (Rescan)",
-    sec1: "1. Programmer Connection & Target IC",
+    sec1: "Programmer Connection & Target IC",
     hwChecking: "Checking connection...",
-    opsOfflineMsg: "⚠ Programmer is disconnected — hardware operations are disabled (file loading, .nes splitting, and socket guide still work). Connect USB + 12V power and click Rescan.",
+    opsOfflineMsg: "⚠ Programmer is disconnected — hardware operations are disabled (file loading, .nes splitting, and socket guide still work). Connect USB + 12V power and click Rescan in STEP 1.",
     lblChipFilter: "Search IC (Part / Vendor)",
     chipFilterPh: "e.g. 27C256, 27C64, 39SF010A",
     lblChipSelect: "Target IC",
-    sec2: "2. Slave Socket Placement Guide",
+    sec2: "Slave Socket Placement Guide",
     warnHtml: "<strong>Notice:</strong><br/>• <strong>DC 12V AC Adapter</strong> & Power ON required<br/>• Use the <strong>right-side SLAVE socket</strong><br/>• <strong>Notch (Pin 1) faces UP (LCD)</strong>, aligned to <strong>bottom (lever)</strong> (28-pin leaves top 2 pins empty)",
-    sec3: "3. Load ROM / Binary File (.bin / .nes)",
+    sec3: "Load ROM / Binary File (.bin / .nes)",
     dropHtml: "Drop <code>.bin</code> or <code>.nes</code> here, or click to select",
     dropSub: "<strong>✓ Auto-strips iNES / NES 2.0 headers (16B, etc.) on load</strong> & splits into PRG / CHR",
     dropAnywhere: "(You can also drop files anywhere on this page)",
@@ -790,7 +790,7 @@ const I18N = {
     padFf: "Pad remaining space with 0xFF",
     chkErase: "Erase before write (Flash only)",
     chkVerify: "Verify after write",
-    sec4: "4. Device Operations",
+    sec4: "Device Operations",
     btnBlank: "Blank Check",
     btnRead: "Read IC",
     btnVerify: "Verify",
@@ -801,6 +801,7 @@ const I18N = {
     btnLogClear: "Clear Log",
     progIdle: "Idle",
     logReady: "Ready.",
+    sec5: "HEX Dump",
     hexEmpty: "(No data loaded)",
     connectedBadge: fw => `Connected (FW ${fw})`,
     disconnectedBadge: "Disconnected",
@@ -904,8 +905,8 @@ function updateHwButtons() {
   });
   const opsBanner = document.getElementById("opsOfflineBanner");
   if (opsBanner) opsBanner.style.display = hwConnected ? "none" : "block";
-  const recWrap = document.getElementById("hwReconnectWrap");
-  if (recWrap) recWrap.style.display = hwConnected ? "none" : "block";
+  const rescanBtn = document.getElementById("btnRescan");
+  if (rescanBtn) rescanBtn.className = hwConnected ? "btn-xs" : "primary";
 }
 
 async function api(url, body) {
