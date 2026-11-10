@@ -54,7 +54,11 @@ class UiState:
         ts = time.strftime("%H:%M:%S")
         with self.job_lock:
             self.job["logs"].append(f"[{ts}] {msg}")
-            self.job["logs"] = self.job["logs"][-200:]
+            self.job["logs"] = self.job["logs"][-2000:]
+
+    def clear_logs(self) -> None:
+        with self.job_lock:
+            self.job["logs"] = []
 
     def get_status(self) -> dict[str, Any]:
         with self.usb_lock:
@@ -137,11 +141,14 @@ class UiState:
             chr_banks = data[5]
             flags6 = data[6]
             flags7 = data[7]
-            if (flags7 & 0x0C) == 0x08:
+            is_nes2 = (flags7 & 0x0C) == 0x08
+            if is_nes2:
                 prg_banks |= (data[9] & 0x0F) << 8
                 chr_banks |= ((data[9] >> 4) & 0x0F) << 8
             mapper = ((flags6 >> 4) & 0x0F) | (flags7 & 0xF0)
-            offset = 16 + (512 if (flags6 & 0x04) else 0)
+            trainer_bytes = 512 if (flags6 & 0x04) else 0
+            offset = 16 + trainer_bytes
+            nes_format = "NES 2.0" if is_nes2 else "iNES"
             prg_size = prg_banks * 16384
             chr_size = chr_banks * 8192
             if len(data) < offset + prg_size + chr_size:
@@ -173,10 +180,27 @@ class UiState:
                         "hex_preview": format_hex_preview(chr_data, 512),
                     }
                 )
-            return {"is_nes": True, "mapper": mapper, "parts": parts}
+            trainer_note = " / Trainer 512B 含む" if trainer_bytes else ""
+            self._log(
+                f"{nes_format} ヘッダ検出 ({offset} bytes{trainer_note}) → "
+                f"ヘッダを自動削除して PRG={len(prg)}B / CHR={len(chr_data)}B を抽出 ({filename})"
+            )
+            return {
+                "is_nes": True,
+                "filename": filename,
+                "nes_format": nes_format,
+                "header_bytes": offset,
+                "trainer_bytes": trainer_bytes,
+                "mapper": mapper,
+                "prg_size": len(prg),
+                "chr_size": len(chr_data),
+                "parts": parts,
+            }
 
+        self._log(f"バイナリ読込: {filename} ({len(data)} bytes / iNES ヘッダなし)")
         return {
             "is_nes": False,
+            "filename": filename,
             "name": filename,
             "size": len(data),
             "crc32": f"0x{zlib.crc32(data) & 0xFFFFFFFF:08X}",
@@ -464,11 +488,15 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .kv { font-size: 12px; line-height: 1.6; color: var(--muted); }
   .kv strong { color: var(--text); }
   .warnbox { font-size: 12px; background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); padding: 9px 10px; border-radius: 7px; margin-top: 10px; line-height: 1.5; }
+  .infobox { font-size: 12px; background: var(--badge-ok-bg); border: 1px solid var(--badge-ok-border); color: var(--badge-ok-text); padding: 9px 11px; border-radius: 7px; margin-top: 8px; line-height: 1.5; }
+  .infobox.plain { background: var(--drop-bg); border-color: var(--border); color: var(--text); }
+  .btn-xs { padding: 4px 9px; font-size: 11px; border-radius: 5px; }
   .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; cursor: pointer; background: var(--drop-bg); }
   .dropzone.drag { border-color: var(--accent); opacity: 0.9; }
   .progress-wrap { height: 18px; background: var(--input-bg); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); margin: 10px 0 6px; }
   .progress-bar { height: 100%; width: 0%; background: var(--prog-grad); transition: width .12s linear; }
   pre { background: var(--pre-bg); color: var(--pre-text); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow: auto; max-height: 280px; margin: 8px 0 0; line-height: 1.45; }
+  pre#logBox { max-height: 340px; min-height: 120px; resize: vertical; }
   .chip-parts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); margin: 6px 0 0; font-weight: 400; }
   .chk input { width: auto; }
@@ -531,6 +559,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <span data-i18n-html="dropHtml">ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択</span>
         <input id="fileInput" type="file" style="display:none" onchange="handleFiles(this.files)" />
       </div>
+      <div id="nesNotice" class="infobox" style="display:none;"></div>
       <div id="nesParts" class="chip-parts"></div>
       <div id="bufMeta" class="kv" style="margin-top:8px;" data-i18n="bufEmpty">ファイル未読込（読出しのみでも実行できます）</div>
       <div class="row" style="margin-top:8px;">
@@ -559,8 +588,14 @@ HTML_PAGE = r"""<!DOCTYPE html>
         <button id="btnDownload" disabled onclick="downloadLast()" data-i18n="btnDownload">読出し結果を保存 (.bin)</button>
       </div>
       <div class="progress-wrap"><div id="progBar" class="progress-bar"></div></div>
-      <div id="progText" class="kv" data-i18n="progIdle">待機中</div>
-      <pre id="logBox" data-i18n="logReady">準備完了。</pre>
+      <div class="row" style="justify-content:space-between;margin-top:4px;">
+        <div id="progText" class="kv" data-i18n="progIdle">待機中</div>
+        <div class="row">
+          <button class="btn-xs" onclick="scrollLogBottom()" data-i18n="btnLogBottom">最新ログへ</button>
+          <button class="btn-xs" onclick="clearLogs()" data-i18n="btnLogClear">ログ消去</button>
+        </div>
+      </div>
+      <pre id="logBox">準備完了。</pre>
     </div>
     <div class="card">
       <h2 data-i18n="sec5">5. HEX ダンプ表示</h2>
@@ -604,6 +639,8 @@ const I18N = {
     btnErase: "消去（イレース）",
     btnProgram: "書込み（プログラム）",
     btnDownload: "読出し結果を保存 (.bin)",
+    btnLogBottom: "最新ログへ",
+    btnLogClear: "ログ消去",
     progIdle: "待機中",
     logReady: "準備完了。",
     hexEmpty: "（データ未読込）",
@@ -617,7 +654,8 @@ const I18N = {
     svg28: "上2ピン空き・下詰め",
     svg32: "ソケット全体を使用",
     svgBottom: "↓ レバー側 (底辺を揃える)",
-    nesSplit: mapper => `iNES ROM (Mapper ${mapper}) を分割しました。書き込むバンクを選んでください:`,
+    nesHeaderStripped: info => `<strong>✓ ${info.nes_format} ヘッダ（${info.header_bytes} バイト${info.trainer_bytes ? " / Trainer 512B 含む" : ""}）を発見したため自動で削除しました！</strong><br/>純粋な ROM データのみ抽出済み（Mapper ${info.mapper} / PRG ${(info.prg_size/1024)} KB${info.chr_size ? ` + CHR ${(info.chr_size/1024)} KB` : ""}）— 下のボタンから焼きたいバンクを選んでください:`,
+    binNoHeader: info => `生バイナリ読込: <strong>${info.filename}</strong>（iNES ヘッダなし・そのまま ${(info.size/1024)} KB をセット済み）`,
     nesBtn: p => `${p.kind} をセット (${p.size/1024} KB / ${p.crc32})`,
     bufLoaded: p => `選択中: <strong>${p.name}</strong> (${p.size.toLocaleString()} bytes) | CRC32=<code>${p.crc32}</code> | SUM16=<code>${p.sum16}</code>`,
     alertNoChip: "IC を選択してください。",
@@ -657,6 +695,8 @@ const I18N = {
     btnErase: "Erase",
     btnProgram: "Program (Write)",
     btnDownload: "Save Readback (.bin)",
+    btnLogBottom: "Jump to Latest",
+    btnLogClear: "Clear Log",
     progIdle: "Idle",
     logReady: "Ready.",
     hexEmpty: "(No data loaded)",
@@ -670,7 +710,8 @@ const I18N = {
     svg28: "Top 2 pins empty / Bottom-aligned",
     svg32: "Uses full 32-pin socket",
     svgBottom: "↓ Lever Side (Align bottom edge)",
-    nesSplit: mapper => `iNES ROM (Mapper ${mapper}) split. Choose bank to load:`,
+    nesHeaderStripped: info => `<strong>✓ ${info.nes_format} header (${info.header_bytes} bytes${info.trainer_bytes ? " incl. 512B trainer" : ""}) detected and automatically stripped!</strong><br/>Raw ROM extracted (Mapper ${info.mapper} / PRG ${(info.prg_size/1024)} KB${info.chr_size ? ` + CHR ${(info.chr_size/1024)} KB` : ""}) — choose a bank below:`,
+    binNoHeader: info => `Raw binary loaded: <strong>${info.filename}</strong> (no iNES header; ${(info.size/1024)} KB loaded as-is)`,
     nesBtn: p => `Load ${p.kind} (${p.size/1024} KB / ${p.crc32})`,
     bufLoaded: p => `Loaded: <strong>${p.name}</strong> (${p.size.toLocaleString()} bytes) | CRC32=<code>${p.crc32}</code> | SUM16=<code>${p.sum16}</code>`,
     alertNoChip: "Please select an IC.",
@@ -682,6 +723,8 @@ if (!I18N[curLang]) curLang = "ja";
 let curTheme = localStorage.getItem("leaper3c_theme") || "famicom";
 if (!["famicom", "nes", "light", "gray", "dark"].includes(curTheme)) curTheme = "famicom";
 let lastStatusData = null;
+let lastInspectInfo = null;
+let lastLogs = [];
 
 function t(key) {
   return (I18N[curLang] && I18N[curLang][key]) || I18N.ja[key] || key;
@@ -711,9 +754,24 @@ function setLanguage(lang) {
   const cf = document.getElementById("chipFilter");
   if (cf) cf.placeholder = t("chipFilterPh");
   if (lastStatusData) renderStatusData(lastStatusData);
+  if (lastInspectInfo) renderInspectNotice(lastInspectInfo);
   if (currentChip) {
     document.getElementById("chipMeta").innerHTML = t("chipMetaHtml")(currentChip);
     drawSocketSvg(currentChip.pin_count);
+  }
+  updateLogView(lastLogs, false);
+}
+
+function renderInspectNotice(info) {
+  const notice = document.getElementById("nesNotice");
+  if (!notice || !info) return;
+  notice.style.display = "block";
+  if (info.is_nes) {
+    notice.className = "infobox";
+    notice.innerHTML = t("nesHeaderStripped")(info);
+  } else {
+    notice.className = "infobox plain";
+    notice.innerHTML = t("binNoHeader")(info);
   }
 }
 
@@ -847,10 +905,11 @@ function handleFiles(files) {
     const b64 = btoa(bin);
     try {
       const info = await api("/api/inspect-file", { filename: f.name, data_b64: b64 });
+      lastInspectInfo = info;
+      renderInspectNotice(info);
       const partsDiv = document.getElementById("nesParts");
       partsDiv.innerHTML = "";
       if (info.is_nes) {
-        document.getElementById("bufMeta").innerHTML = t("nesSplit")(info.mapper);
         info.parts.forEach((p, idx) => {
           const btn = document.createElement("button");
           btn.textContent = t("nesBtn")(p);
@@ -861,6 +920,7 @@ function handleFiles(files) {
       } else {
         applyBuffer(info);
       }
+      await syncLogs(false);
     } catch (e) {
       alert(e.message);
     }
@@ -901,14 +961,50 @@ async function runAction(action) {
   }
 }
 
+function updateLogView(logs, forceBottom = false) {
+  lastLogs = logs || [];
+  const lb = document.getElementById("logBox");
+  if (!lb) return;
+  const wasAtBottom = (lb.scrollHeight - lb.scrollTop - lb.clientHeight) <= 28;
+  const prevTop = lb.scrollTop;
+  const text = lastLogs.length > 0 ? lastLogs.join("\n") : t("logReady");
+  if (lb.textContent !== text) {
+    lb.textContent = text;
+  }
+  if (forceBottom || wasAtBottom) {
+    lb.scrollTop = lb.scrollHeight;
+  } else {
+    lb.scrollTop = prevTop;
+  }
+}
+
+function scrollLogBottom() {
+  const lb = document.getElementById("logBox");
+  if (lb) lb.scrollTop = lb.scrollHeight;
+}
+
+async function clearLogs() {
+  try {
+    await api("/api/clear-logs", {});
+    updateLogView([], true);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function syncLogs(forceBottom = false) {
+  try {
+    const j = await api("/api/job");
+    updateLogView(j.logs || [], forceBottom);
+  } catch (_) {}
+}
+
 async function pollJob() {
   const j = await api("/api/job");
   document.getElementById("progBar").style.width = `${j.pct}%`;
   document.getElementById("progText").textContent = `${j.phase} (${j.done}/${j.total} - ${j.pct}%)` +
     (j.result ? ` — ${j.result.message}` : "") + (j.error ? ` — ERROR: ${j.error}` : "");
-  document.getElementById("logBox").textContent = (j.logs || []).join("\n");
-  const lb = document.getElementById("logBox");
-  lb.scrollTop = lb.scrollHeight;
+  updateLogView(j.logs || [], false);
   if (!j.running) {
     clearInterval(pollTimer);
     pollTimer = null;
@@ -928,6 +1024,7 @@ function downloadLast() {
 setTheme(curTheme);
 setLanguage(curLang);
 refreshStatus();
+syncLogs(true);
 </script>
 </body>
 </html>
@@ -998,6 +1095,10 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                 if self.path == "/api/action":
                     jid = state.start_action(body)
                     self._send_json({"job_id": jid})
+                    return
+                if self.path == "/api/clear-logs":
+                    state.clear_logs()
+                    self._send_json({"ok": True})
                     return
                 self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             except Exception as exc:

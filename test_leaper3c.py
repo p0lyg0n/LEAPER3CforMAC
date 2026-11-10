@@ -227,9 +227,28 @@ class TestLeaper3C(unittest.TestCase):
             with urllib.request.urlopen(req) as r:
                 parsed = json.loads(r.read().decode("utf-8"))
                 self.assertTrue(parsed["is_nes"])
+                self.assertEqual(parsed["nes_format"], "iNES")
+                self.assertEqual(parsed["header_bytes"], 16)
+                self.assertEqual(parsed["trainer_bytes"], 0)
                 self.assertEqual(len(parsed["parts"]), 2)
                 self.assertEqual(parsed["parts"][0]["size"], 32768)
                 self.assertEqual(parsed["parts"][1]["size"], 8192)
+
+            # Verify log history retains header-stripping entry and supports clearing
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/job") as r:
+                job_data = json.loads(r.read().decode("utf-8"))
+                self.assertTrue(any("ヘッダ検出 (16 bytes)" in line for line in job_data["logs"]))
+
+            clear_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/clear-logs",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(clear_req) as r:
+                self.assertTrue(json.loads(r.read().decode("utf-8"))["ok"])
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/job") as r:
+                self.assertEqual(json.loads(r.read().decode("utf-8"))["logs"], [])
         finally:
             srv.shutdown()
             srv.server_close()
