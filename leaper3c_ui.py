@@ -27,6 +27,60 @@ from typing import Any, Callable, Optional
 import leaper3c
 
 
+OFFLINE_CHIPS: list[dict[str, Any]] = [
+    {"name": "27C64", "vendor": "27XXX", "size_bytes": 8192, "is_uv_eprom": True, "pin_count": 28},
+    {"name": "27C128", "vendor": "27XXX", "size_bytes": 16384, "is_uv_eprom": True, "pin_count": 28},
+    {"name": "27C256", "vendor": "27XXX", "size_bytes": 32768, "is_uv_eprom": True, "pin_count": 28},
+    {"name": "27C512", "vendor": "27XXX", "size_bytes": 65536, "is_uv_eprom": True, "pin_count": 28},
+    {"name": "27C010", "vendor": "27XXX", "size_bytes": 131072, "is_uv_eprom": True, "pin_count": 32},
+    {"name": "27C020", "vendor": "27XXX", "size_bytes": 262144, "is_uv_eprom": True, "pin_count": 32},
+    {"name": "27C040", "vendor": "27XXX", "size_bytes": 524288, "is_uv_eprom": True, "pin_count": 32},
+    {"name": "27C080", "vendor": "27XXX", "size_bytes": 1048576, "is_uv_eprom": True, "pin_count": 32},
+    {"name": "28C256", "vendor": "ATMEL", "size_bytes": 32768, "is_uv_eprom": False, "pin_count": 28},
+    {"name": "39SF010A", "vendor": "SST", "size_bytes": 131072, "is_uv_eprom": False, "pin_count": 32},
+    {"name": "39SF020A", "vendor": "SST", "size_bytes": 262144, "is_uv_eprom": False, "pin_count": 32},
+    {"name": "39SF040", "vendor": "SST", "size_bytes": 524288, "is_uv_eprom": False, "pin_count": 32},
+    {"name": "29F010", "vendor": "AMD", "size_bytes": 131072, "is_uv_eprom": False, "pin_count": 32},
+    {"name": "29F040", "vendor": "AMD", "size_bytes": 524288, "is_uv_eprom": False, "pin_count": 32},
+]
+
+
+def _offline_chip_list() -> list[dict[str, Any]]:
+    return [
+        {
+            "vendor_id": 0,
+            "vendor": c["vendor"],
+            "dev_id": 0,
+            "name": c["name"],
+            "label": f"{c['name']} @ {c['vendor']}",
+            "is_uv_eprom": c["is_uv_eprom"],
+        }
+        for c in OFFLINE_CHIPS
+    ]
+
+
+def _find_offline_chip(chip_name: str, vendor_name: str) -> dict[str, Any]:
+    q_name = chip_name.strip().upper()
+    q_vendor = vendor_name.strip().upper()
+    for c in OFFLINE_CHIPS:
+        if c["name"].upper() == q_name and (not q_vendor or c["vendor"].upper() == q_vendor):
+            sz = int(c["size_bytes"])
+            return {
+                "source": "offline",
+                "vendor": c["vendor"],
+                "vendor_id": 0,
+                "name": c["name"],
+                "dev_id": 0,
+                "size_bytes": sz,
+                "blocks_512": sz // 512,
+                "is_uv_eprom": bool(c["is_uv_eprom"]),
+                "pin_count": int(c["pin_count"]),
+                "vcc": "-",
+                "vpp": "-",
+            }
+    raise leaper3c.LeaperError(f"未接続時の参照カタログに '{chip_name}' が見つかりません。")
+
+
 class UiState:
     """Thread-safe controller bridging the HTTP UI and LEAPER-3C hardware."""
 
@@ -88,23 +142,31 @@ class UiState:
                 if close_fn:
                     close_fn()
 
-    def get_chips(self) -> list[dict[str, Any]]:
+    def get_chips(self) -> tuple[list[dict[str, Any]], str]:
         with self.usb_lock:
-            backend = self.backend_factory()
+            try:
+                backend = self.backend_factory()
+            except leaper3c.LeaperError:
+                return _offline_chip_list(), "offline"
             try:
                 lp = leaper3c.Leaper3C(backend)
                 chips = lp.list_chips()
-                return [
-                    {
-                        "vendor_id": c.vendor_id,
-                        "vendor": c.vendor_name,
-                        "dev_id": c.dev_id,
-                        "name": c.name,
-                        "label": f"{c.name} @ {c.vendor_name}",
-                        "is_uv_eprom": c.is_uv_eprom,
-                    }
-                    for c in chips
-                ]
+                return (
+                    [
+                        {
+                            "vendor_id": c.vendor_id,
+                            "vendor": c.vendor_name,
+                            "dev_id": c.dev_id,
+                            "name": c.name,
+                            "label": f"{c.name} @ {c.vendor_name}",
+                            "is_uv_eprom": c.is_uv_eprom,
+                        }
+                        for c in chips
+                    ],
+                    "hardware",
+                )
+            except leaper3c.LeaperError:
+                return _offline_chip_list(), "offline"
             finally:
                 close_fn = getattr(backend, "close", None)
                 if close_fn:
@@ -112,13 +174,17 @@ class UiState:
 
     def get_chip_info(self, chip_name: str, vendor_name: str) -> dict[str, Any]:
         with self.usb_lock:
-            backend = self.backend_factory()
+            try:
+                backend = self.backend_factory()
+            except leaper3c.LeaperError:
+                return _find_offline_chip(chip_name, vendor_name)
             try:
                 lp = leaper3c.Leaper3C(backend)
                 chip = lp.find_chip(chip_name, vendor_name or None)
                 params = lp.select_chip(chip)
                 pin_count = 28 if any(k in chip.name for k in ("27C64", "27C128", "27C256", "27C512", "28C256")) else 32
                 return {
+                    "source": "hardware",
                     "vendor": chip.vendor_name,
                     "vendor_id": chip.vendor_id,
                     "name": chip.name,
@@ -130,6 +196,11 @@ class UiState:
                     "vcc": f"{params.vcc_raw / 10:.1f}V",
                     "vpp": f"{params.vpp_raw / 10:.1f}V",
                 }
+            except leaper3c.LeaperError:
+                try:
+                    return _find_offline_chip(chip_name, vendor_name)
+                except leaper3c.LeaperError:
+                    raise
             finally:
                 close_fn = getattr(backend, "close", None)
                 if close_fn:
@@ -655,7 +726,12 @@ const I18N = {
     connErrBadge: "接続エラー",
     notFound: "LEAPER-3C が見つかりません",
     hwMetaHtml: st => `<strong>${st.banner}</strong> | USB: ${st.location} | 対応IC: ${st.chip_count}種<br/>ステータス 0x42: <code>${st.status_hex}</code>`,
-    chipMetaHtml: info => `容量: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | 種類: <strong>${info.is_uv_eprom ? "UV-EPROM (27C系)" : "Flash / EEPROM"}</strong> | ~Vcc ${info.vcc} / ~Vpp ${info.vpp}`,
+    chipMetaHtml: info => {
+      const base = `容量: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | 種類: <strong>${info.is_uv_eprom ? "UV-EPROM (27C系)" : "Flash / EEPROM"}</strong>`;
+      return info.source === "offline"
+        ? `<em>（未接続・参考一覧）</em> ${base}<br/>接続後に「再検索」で260種＆Vcc/Vppを取得します`
+        : `${base} | ~Vcc ${info.vcc} / ~Vpp ${info.vpp}`;
+    },
     svgTop: "↑ LCD側 (1番ピン/切り欠き上)",
     svg28: "上2ピン空き・下詰め",
     svg32: "ソケット全体を使用",
@@ -713,7 +789,12 @@ const I18N = {
     connErrBadge: "Connection Error",
     notFound: "LEAPER-3C not found",
     hwMetaHtml: st => `<strong>${st.banner}</strong> | USB: ${st.location} | Chips: ${st.chip_count}<br/>Status 0x42: <code>${st.status_hex}</code>`,
-    chipMetaHtml: info => `Size: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | Type: <strong>${info.is_uv_eprom ? "UV-EPROM (27C)" : "Flash / EEPROM"}</strong> | ~Vcc ${info.vcc} / ~Vpp ${info.vpp}`,
+    chipMetaHtml: info => {
+      const base = `Size: <strong>${info.size_bytes.toLocaleString()} B (${info.size_bytes/1024} KB)</strong> | Type: <strong>${info.is_uv_eprom ? "UV-EPROM (27C)" : "Flash / EEPROM"}</strong>`;
+      return info.source === "offline"
+        ? `<em>(Offline reference)</em> ${base}<br/>Connect hardware & click Rescan for all 260 ICs & Vcc/Vpp`
+        : `${base} | ~Vcc ${info.vcc} / ~Vpp ${info.vpp}`;
+    },
     svgTop: "↑ LCD Side (Pin 1 / Notch UP)",
     svg28: "Top 2 pins empty / Bottom-aligned",
     svg32: "Uses full 32-pin socket",
@@ -766,6 +847,8 @@ function setLanguage(lang) {
   if (currentChip) {
     document.getElementById("chipMeta").innerHTML = t("chipMetaHtml")(currentChip);
     drawSocketSvg(currentChip.pin_count);
+  } else {
+    drawSocketSvg(28);
   }
   updateLogView(lastLogs, false);
 }
@@ -784,6 +867,7 @@ function renderInspectNotice(info) {
 }
 
 let allChips = [];
+let chipSource = "none";
 let currentChip = null;
 let loadedBuffer = { name: "", b64: "", size: 0 };
 let pollTimer = null;
@@ -820,17 +904,21 @@ async function refreshStatus() {
     const st = await api("/api/status");
     lastStatusData = st;
     renderStatusData(st);
-    if (st.connected && allChips.length === 0) await loadChips();
+    if ((st.connected && chipSource !== "hardware") || allChips.length === 0) {
+      await loadChips();
+    }
   } catch (e) {
     badge.className = "badge err";
     badge.textContent = t("connErrBadge");
     meta.textContent = e.message;
+    if (allChips.length === 0) await loadChips().catch(() => {});
   }
 }
 
 async function loadChips() {
   const data = await api("/api/chips");
   allChips = data.chips || [];
+  chipSource = data.source || "offline";
   renderChipSelect(allChips);
 }
 
@@ -1040,6 +1128,7 @@ function downloadLast() {
 
 setTheme(curTheme);
 setLanguage(curLang);
+drawSocketSvg(28);
 refreshStatus();
 syncLogs(true);
 </script>
@@ -1082,7 +1171,8 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                 return
             if self.path == "/api/chips":
                 try:
-                    self._send_json({"chips": state.get_chips()})
+                    chips, source = state.get_chips()
+                    self._send_json({"chips": chips, "source": source})
                 except Exception as exc:
                     self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return

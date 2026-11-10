@@ -275,6 +275,43 @@ class TestLeaper3C(unittest.TestCase):
             log_file.write_text("line1\nline2\nERROR: boom\n", encoding="utf-8")
             self.assertIn("ERROR: boom", webui_launcher_entry.read_log_tail(log_file, 6))
 
+    def test_web_ui_offline_chip_fallback(self) -> None:
+        import json
+        import threading
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        import leaper3c_ui
+
+        def fail_factory():
+            raise leaper3c.LeaperError("LEAPER-3C not connected")
+
+        state = leaper3c_ui.UiState(backend_factory=fail_factory)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), leaper3c_ui.make_handler(state))
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            port = srv.server_address[1]
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/chips") as r:
+                chips_res = json.loads(r.read().decode("utf-8"))
+                self.assertEqual(chips_res["source"], "offline")
+                self.assertTrue(any(c["name"] == "27C256" and c["vendor"] == "27XXX" for c in chips_res["chips"]))
+
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/chip-info",
+                data=json.dumps({"name": "27C256", "vendor": "27XXX"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as r:
+                info = json.loads(r.read().decode("utf-8"))
+                self.assertEqual(info["source"], "offline")
+                self.assertEqual(info["size_bytes"], 32768)
+                self.assertEqual(info["pin_count"], 28)
+                self.assertTrue(info["is_uv_eprom"])
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()
