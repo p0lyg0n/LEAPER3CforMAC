@@ -327,12 +327,13 @@ class TestLeaper3C(unittest.TestCase):
             with urllib.request.urlopen(en_req) as r:
                 en_st = json.loads(r.read().decode("utf-8"))
                 self.assertFalse(en_st["connected"])
+            import re
             err_msg = leaper3c_ui._localize_error(
                 "LEAPER-3C (VID=0x04CE, PID=0x0A3C) が見つかりません。USBケーブルと12V電源スイッチを確認してください。",
                 "en",
             )
-            self.assertNotIn("見つかりません", err_msg)
-            self.assertIn("check the USB cable", err_msg)
+            self.assertIsNone(re.search(r"[ぁ-んァ-ン一-龥]", err_msg))
+            self.assertIn("not found. Please check the USB cable", err_msg)
         finally:
             srv.shutdown()
             srv.server_close()

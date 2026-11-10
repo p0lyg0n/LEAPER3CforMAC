@@ -68,7 +68,8 @@ def _localize_error(msg: str, lang: str = "ja") -> str:
         return msg
     text = msg
     replacements = [
-        ("見つかりません。USBケーブルと12V電源スイッチを確認してください。", "not found. Please check the USB cable and 12V power switch."),
+        (" が見つかりません。USBケーブルと12V電源スイッチを確認してください。", " not found. Please check the USB cable and 12V power switch."),
+        ("が見つかりません。USBケーブルと12V電源スイッチを確認してください。", " not found. Please check the USB cable and 12V power switch."),
         ("libusb が見つかりません。`brew install libusb` を実行してください。", "libusb not found. Please run `brew install libusb`."),
         ("USBインターフェース(0)を確保できませんでした:", "Could not claim USB interface (0):"),
         ("IC向き・接触・12V電源を確認してください", "Check IC orientation, socket contact, and 12V power"),
