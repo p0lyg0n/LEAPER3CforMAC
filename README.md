@@ -40,7 +40,16 @@ No Windows VM, no Boot Camp, and no macOS kernel extension (`.kext`) required �
 
 ### Installation (macOS)
 
-#### Quick One-Command Setup (Recommended)
+#### Option 1: Prebuilt Standalone App Download (macOS Apple Silicon)
+If you just want to run the **Web UI app** without cloning or installing Python/Homebrew:
+1. Download `LEAPER-3C-WebUI-macos-arm64.zip` from [**GitHub Releases**](https://github.com/p0lyg0n/LEAPER3CforMAC/releases) (locally compiled & verified on Apple Silicon; bundles Python, `pyusb`, and `libusb-1.0.dylib`).
+2. Extract it and move **`LEAPER-3C Web UI.app`** into `/Applications`.
+3. Because this is an ad-hoc signed community build, if macOS blocks the downloaded archive on another Mac, clear the quarantine attribute once and double-click to launch:
+   ```sh
+   xattr -cr "/Applications/LEAPER-3C Web UI.app"
+   ```
+
+#### Option 2: Quick One-Command Setup (Recommended for CLI + Web UI)
 If Homebrew is already installed, you can install `libusb`, Python `venv`, `pyusb`, global CLI commands, and `/Applications/LEAPER-3C Web UI.app` with a single command:
 
 ```sh
@@ -224,7 +233,16 @@ Windows 仮想環境や Boot Camp、macOS カーネル拡張（`.kext`）は不�
 
 ### インストール方法（macOS）
 
-#### ワンコマンドで一括インストール（おすすめ）
+#### 方法A: ビルド済みアプリをダウンロードしてそのまま使う（Apple Silicon Mac）
+コマンドや Homebrew を一切使わず **Web UI アプリだけすぐ使いたい場合**:
+1. [**GitHub Releases**](https://github.com/p0lyg0n/LEAPER3CforMAC/releases) からローカルでビルド済みの `LEAPER-3C-WebUI-macos-arm64.zip`（Python・`pyusb`・`libusb-1.0.dylib` 同梱）をダウンロードします。
+2. 解凍して出てきた **`LEAPER-3C Web UI.app`** を「アプリケーション」フォルダへ入れます。
+3. Apple 公証なしのローカル署名アプリのため、別の Mac でブラウザからダウンロードして「開発元を検証できない」と出た場合は、1 回だけ以下を実行してからダブルクリックで起動してください：
+   ```sh
+   xattr -cr "/Applications/LEAPER-3C Web UI.app"
+   ```
+
+#### 方法B: ワンコマンドで一括インストール（CLI・Web UI・ソース利用向けおすすめ）
 Homebrew が入っている Mac なら、以下の 1 行だけで `libusb` 導入・仮想環境作成・`pyusb` インストール・`leaper3c` コマンド化・`/Applications/LEAPER-3C Web UI.app` 作成まで一括で完了します：
 
 ```sh
