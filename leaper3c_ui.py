@@ -491,8 +491,10 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .infobox { font-size: 12px; background: var(--badge-ok-bg); border: 1px solid var(--badge-ok-border); color: var(--badge-ok-text); padding: 9px 11px; border-radius: 7px; margin-top: 8px; line-height: 1.5; }
   .infobox.plain { background: var(--drop-bg); border-color: var(--border); color: var(--text); }
   .btn-xs { padding: 4px 9px; font-size: 11px; border-radius: 5px; }
-  .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; cursor: pointer; background: var(--drop-bg); }
-  .dropzone.drag { border-color: var(--accent); opacity: 0.9; }
+  .dropzone { border: 2.5px dashed var(--border); border-radius: 10px; min-height: 120px; padding: 26px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; cursor: pointer; background: var(--drop-bg); font-size: 14px; font-weight: 600; transition: border-color .15s, background .15s, box-shadow .15s; }
+  .dropzone:hover { border-color: var(--accent); }
+  .dropzone .dropsub { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .dropzone.drag { border-color: var(--accent); background: var(--panel); box-shadow: inset 0 0 0 2px var(--accent); }
   .progress-wrap { height: 18px; background: var(--input-bg); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); margin: 10px 0 6px; }
   .progress-bar { height: 100%; width: 0%; background: var(--prog-grad); transition: width .12s linear; }
   pre { background: var(--pre-bg); color: var(--pre-text); border: 1px solid var(--border); border-radius: 7px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow: auto; max-height: 280px; margin: 8px 0 0; line-height: 1.45; }
@@ -556,7 +558,9 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <div class="card">
       <h2 data-i18n="sec3">3. ROM / バイナリファイル読込（.bin / .nes）</h2>
       <div id="dropzone" class="dropzone" onclick="document.getElementById('fileInput').click()">
-        <span data-i18n-html="dropHtml">ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択</span>
+        <div data-i18n-html="dropHtml">ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択</div>
+        <div class="dropsub" data-i18n-html="dropSub"><strong>✓ .nes は読込時に iNES / NES 2.0 ヘッダ（16B 等）を自動削除</strong>し、PRG / CHR に自動分割します</div>
+        <div class="dropsub" data-i18n="dropAnywhere">（画面上のどこにドロップしても読み込めます）</div>
         <input id="fileInput" type="file" style="display:none" onchange="handleFiles(this.files)" />
       </div>
       <div id="nesNotice" class="infobox" style="display:none;"></div>
@@ -625,6 +629,8 @@ const I18N = {
     warnHtml: "<strong>注意:</strong><br/>• <strong>DC 12V ACアダプタ</strong> 接続＆電源ON必須<br/>• 挿すのは <strong>右側「SLAVE」ソケット</strong><br/>• <strong>切り欠き（1番ピン）は上（LCD側）</strong>、本体位置は <strong>下端（レバー側）揃え</strong>（28ピンICは上側2ピン空き）",
     sec3: "3. ROM / バイナリファイル読込（.bin / .nes）",
     dropHtml: "ここに <code>.bin</code> または <code>.nes</code> をドロップ / クリックして選択",
+    dropSub: "<strong>✓ .nes は読込時に iNES / NES 2.0 ヘッダ（16B 等）を自動削除</strong>し、PRG / CHR に自動分割します",
+    dropAnywhere: "（画面上のどこにドロップしても読み込めます）",
     bufEmpty: "ファイル未読込（読出しのみでも実行できます）",
     lblPadMode: "サイズ不一致時の余白埋め",
     padNone: "しない（IC容量と一致必須）",
@@ -681,6 +687,8 @@ const I18N = {
     warnHtml: "<strong>Notice:</strong><br/>• <strong>DC 12V AC Adapter</strong> & Power ON required<br/>• Use the <strong>right-side SLAVE socket</strong><br/>• <strong>Notch (Pin 1) faces UP (LCD)</strong>, aligned to <strong>bottom (lever)</strong> (28-pin leaves top 2 pins empty)",
     sec3: "3. Load ROM / Binary File (.bin / .nes)",
     dropHtml: "Drop <code>.bin</code> or <code>.nes</code> here, or click to select",
+    dropSub: "<strong>✓ Auto-strips iNES / NES 2.0 headers (16B, etc.) on load</strong> & splits into PRG / CHR",
+    dropAnywhere: "(You can also drop files anywhere on this page)",
     bufEmpty: "No file loaded (Read can run without a file)",
     lblPadMode: "Padding on size mismatch",
     padNone: "None (exact IC size required)",
@@ -890,7 +898,16 @@ function drawSocketSvg(pins) {
 const dz = document.getElementById("dropzone");
 dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("drag"); });
 dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
-dz.addEventListener("drop", e => { e.preventDefault(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); });
+dz.addEventListener("drop", e => { e.preventDefault(); e.stopPropagation(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); });
+window.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("drag"); });
+window.addEventListener("dragleave", e => { if (!e.relatedTarget) dz.classList.remove("drag"); });
+window.addEventListener("drop", e => {
+  e.preventDefault();
+  dz.classList.remove("drag");
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    handleFiles(e.dataTransfer.files);
+  }
+});
 
 function handleFiles(files) {
   if (!files || !files[0]) return;
