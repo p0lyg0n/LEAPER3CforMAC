@@ -68,19 +68,45 @@ class UsbBackend(Protocol):
     def bulk_write(self, data: bytes, timeout: int) -> int: ...
 
 
+def _candidate_libusb_paths() -> list[Path]:
+    """Return candidate libusb-1.0.dylib paths, preferring bundled .app copies first."""
+    candidates: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        mp = Path(meipass)
+        candidates.extend(
+            [
+                mp / "libusb-1.0.dylib",
+                mp / "libusb-1.0.0.dylib",
+                mp / "lib" / "libusb-1.0.dylib",
+                mp / "lib" / "libusb-1.0.0.dylib",
+            ]
+        )
+    exe_dir = Path(sys.executable).resolve().parent
+    candidates.extend(
+        [
+            exe_dir / "libusb-1.0.dylib",
+            exe_dir / "libusb-1.0.0.dylib",
+            exe_dir.parent / "Frameworks" / "libusb-1.0.dylib",
+            exe_dir.parent / "Frameworks" / "libusb-1.0.0.dylib",
+            exe_dir.parent / "Resources" / "libusb-1.0.dylib",
+            Path("/opt/homebrew/lib/libusb-1.0.dylib"),
+            Path("/usr/local/lib/libusb-1.0.dylib"),
+        ]
+    )
+    return candidates
+
+
 def _find_libusb_backend():
-    """Locate libusb-1.0 explicitly on Apple Silicon / Intel Homebrew if needed."""
+    """Locate libusb-1.0 explicitly from app bundle or Apple Silicon / Intel Homebrew."""
+    for candidate in _candidate_libusb_paths():
+        if candidate.exists():
+            backend = usb.backend.libusb1.get_backend(find_library=lambda _name, p=str(candidate): p)
+            if backend is not None:
+                return backend
     backend = usb.backend.libusb1.get_backend()
     if backend is not None:
         return backend
-    for candidate in (
-        "/opt/homebrew/lib/libusb-1.0.dylib",
-        "/usr/local/lib/libusb-1.0.dylib",
-    ):
-        if Path(candidate).exists():
-            backend = usb.backend.libusb1.get_backend(find_library=lambda _name, p=candidate: p)
-            if backend is not None:
-                return backend
     raise LeaperError(
         "libusb が見つかりません。`brew install libusb` を実行してください。"
     )

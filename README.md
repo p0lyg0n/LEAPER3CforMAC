@@ -40,6 +40,17 @@ No Windows VM, no Boot Camp, and no macOS kernel extension (`.kext`) required �
 
 ### Installation (macOS)
 
+#### Quick One-Command Setup (Recommended)
+If Homebrew is already installed, you can install `libusb`, Python `venv`, `pyusb`, global CLI commands, and `/Applications/LEAPER-3C Web UI.app` with a single command:
+
+```sh
+git clone https://github.com/p0lyg0n/LEAPER3CforMAC.git && cd LEAPER3CforMAC && ./setup.sh
+```
+
+> Use `./setup.sh --with-standalone` to build and install a **self-contained standalone `.app`** bundling Python, `pyusb`, and `libusb-1.0.dylib` (using PyInstaller).
+
+#### Manual Step-by-Step Setup
+
 1. **Install prerequisites & clone repository**:
 ```sh
 # Install libusb via Homebrew (Apple Silicon: /opt/homebrew/opt/libusb)
@@ -62,6 +73,9 @@ python3 -m venv venv
 
 # (Optional) Install "/Applications/LEAPER-3C Web UI.app" for 1-click launch from Finder/Spotlight
 ./install_webui_app.sh
+
+# (Optional) Build a redistributable standalone .app + .zip (bundles Python + pyusb + libusb)
+./build_standalone_app.sh
 ```
 
 3. **Verify hardware connection**:
@@ -157,6 +171,9 @@ leaper3c info
   - `0x40 / 0x49`: Command dispatch (`wIndex`: `0x50 'P'` session start, `0x52 'R'` session end, `0x54 'T'` program start, `0x57 'W'` read 512B block, `0x59 'Y'` blank check, `0x5B '['` program 512B block, `0x5C '\'` erase, `0x5D ']'` verify). When a command targets `(vendor_id, dev_id)`, `wValue=dev_id` and `wLength=vendor_id`.
 
 ### Files in This Repository
+- `setup.sh` — One-command macOS installer (`brew install libusb`, `venv`, `pyusb`, CLI links, `/Applications/LEAPER-3C Web UI.app`)
+- `build_standalone_app.sh` / `webui_launcher_entry.py` — Builds a self-contained redistributable `LEAPER-3C Web UI.app` + `.zip` (bundles Python, `pyusb`, and `libusb-1.0.dylib` via PyInstaller)
+- `install_webui_app.sh` / `make_app_icon.py` — Installs `/Applications/LEAPER-3C Web UI.app` pointing to your local checkout with Famicom-themed IC icon
 - `leaper3c.py` — Standalone macOS USB driver & CLI implementation
 - `leaper3c` — Portable shell wrapper (auto-selects `./venv/bin/python3`, `./.venv/bin/python3`, or system `python3`)
 - `leaper3c_ui.py` — Built-in local Web GUI (`./leaper3c ui`) with `.nes` splitter, Hex preview & 28P/32P SVG socket guide
@@ -207,6 +224,17 @@ Windows 仮想環境や Boot Camp、macOS カーネル拡張（`.kext`）は不�
 
 ### インストール方法（macOS）
 
+#### ワンコマンドで一括インストール（おすすめ）
+Homebrew が入っている Mac なら、以下の 1 行だけで `libusb` 導入・仮想環境作成・`pyusb` インストール・`leaper3c` コマンド化・`/Applications/LEAPER-3C Web UI.app` 作成まで一括で完了します：
+
+```sh
+git clone https://github.com/p0lyg0n/LEAPER3CforMAC.git && cd LEAPER3CforMAC && ./setup.sh
+```
+
+> 他の Mac へそのままコピーして配れる **配布用スタンドアロン `.app`（Python + `pyusb` + `libusb-1.0.dylib` 同梱版）** をビルドして `/Applications` に入れたい場合は `./setup.sh --with-standalone`（またはビルドのみ `./build_standalone_app.sh`）を実行してください。
+
+#### 手動で順に進める場合
+
 1. **必要ライブラリの導入とリポジトリ取得**:
 ```sh
 # 1. Homebrew で libusb をインストール（Apple Silicon の /opt/homebrew へ入ります）
@@ -230,6 +258,9 @@ python3 -m venv venv
 # （推奨）アプリケーションフォルダに "/Applications/LEAPER-3C Web UI.app" を作成します
 # Finder や Launchpad / Spotlight からクリックするだけで Web UI 起動＋ブラウザ表示ができます
 ./install_webui_app.sh
+
+# （配布用）Python / pyusb / libusb ごと 1 つにまとめたスタンドアロン .app と .zip を dist/ へビルドします
+./build_standalone_app.sh
 ```
 > これを実行すると、次回以降どのディレクトリからでも `leaper3c` / `leaper3c ui` を直接実行できるようになります。
 
@@ -326,6 +357,9 @@ leaper3c info
   - `0x40 / 0x49`: コマンド実行（`wIndex`: `0x50 'P'` 開始 / `0x52 'R'` 終了 / `0x54 'T'` 書込み開始 / `0x57 'W'` 512B 読出し / `0x59 'Y'` ブランクチェック / `0x5B '['` 512B 書込み確定 / `0x5C '\'` 消去 / `0x5D ']'` ベリファイ）
 
 ### 収録ファイル構成
+- `setup.sh` — macOS 用ワンコマンドセットアップスクリプト（`libusb` / `venv` / `pyusb` / CLIリンク / Web UI アプリ作成）
+- `build_standalone_app.sh` / `webui_launcher_entry.py` — Python・`pyusb`・`libusb-1.0.dylib` 同梱の配布用スタンドアロン `.app` + `.zip` ビルダー
+- `install_webui_app.sh` / `make_app_icon.py` — `/Applications/LEAPER-3C Web UI.app` 作成スクリプト＆ファミコン風アイコン生成ヘルパー
 - `leaper3c.py` — macOS 用 USB ドライバ＆CLI本体
 - `leaper3c` — ポータブル実行ラッパー（`./venv/bin/python3` / `./.venv/bin/python3` / システム `python3` を自動検出）
 - `leaper3c_ui.py` — 内蔵ブラウザ UI（`./leaper3c ui`、`.nes` 自動分割・HEX プレビュー・ソケット図解付き）

@@ -1,8 +1,14 @@
 venv/
 .venv/
+.build_venv/
+build/
+dist/
+*.spec
+*.zip
 __pycache__/
 *.pyc
 *.pyo
 .DS_Store
 *.bin
 *.nes
+

@@ -253,6 +253,28 @@ class TestLeaper3C(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_bundled_libusb_search_and_launcher_helpers(self) -> None:
+        import sys
+        import tempfile
+        from pathlib import Path
+        import webui_launcher_entry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            orig_meipass = getattr(sys, "_MEIPASS", None)
+            sys._MEIPASS = tmp
+            try:
+                paths = leaper3c._candidate_libusb_paths()
+                self.assertEqual(paths[0], Path(tmp) / "libusb-1.0.dylib")
+            finally:
+                if orig_meipass is None:
+                    delattr(sys, "_MEIPASS")
+                else:
+                    sys._MEIPASS = orig_meipass
+
+            log_file = Path(tmp) / "webui.log"
+            log_file.write_text("line1\nline2\nERROR: boom\n", encoding="utf-8")
+            self.assertIn("ERROR: boom", webui_launcher_entry.read_log_tail(log_file, 6))
+
 
 if __name__ == "__main__":
     unittest.main()
