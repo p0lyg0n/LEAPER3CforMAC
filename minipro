@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+SOURCE="$0"
+while [ -L "$SOURCE" ]; do
+    DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)"
+    TARGET="$(readlink "$SOURCE")"
+    case "$TARGET" in
+        /*) SOURCE="$TARGET" ;;
+        *) SOURCE="$DIR/$TARGET" ;;
+    esac
+done
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)"
+
+if [ -x "$SCRIPT_DIR/venv/bin/python3" ]; then
+    PYTHON="$SCRIPT_DIR/venv/bin/python3"
+elif [ -x "$SCRIPT_DIR/.venv/bin/python3" ]; then
+    PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+else
+    PYTHON="$(command -v python3)"
+fi
+
+exec "$PYTHON" "$SCRIPT_DIR/minipro_shim.py" "$@"
