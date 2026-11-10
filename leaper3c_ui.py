@@ -59,7 +59,37 @@ def _offline_chip_list() -> list[dict[str, Any]]:
     ]
 
 
-def _find_offline_chip(chip_name: str, vendor_name: str) -> dict[str, Any]:
+def _norm_lang(lang: str | None) -> str:
+    return "en" if str(lang or "").strip().lower().startswith("en") else "ja"
+
+
+def _localize_error(msg: str, lang: str = "ja") -> str:
+    if _norm_lang(lang) != "en":
+        return msg
+    text = msg
+    replacements = [
+        ("見つかりません。USBケーブルと12V電源スイッチを確認してください。", "not found. Please check the USB cable and 12V power switch."),
+        ("libusb が見つかりません。`brew install libusb` を実行してください。", "libusb not found. Please run `brew install libusb`."),
+        ("USBインターフェース(0)を確保できませんでした:", "Could not claim USB interface (0):"),
+        ("IC向き・接触・12V電源を確認してください", "Check IC orientation, socket contact, and 12V power"),
+        ("過電流を検出しました！ICを逆挿ししていないか直ちに確認してください", "Over-current detected! Immediately verify the IC is not inserted backwards."),
+        ("エラーコード ", "Error code "),
+        ("失敗:", "failed:"),
+        ("失敗 ", "failed "),
+        ("対応ICリストに ", "Not found in device IC list: "),
+        (" が見つかりません。`list` コマンドで確認してください。", " (check with `list`)."),
+        (" が見つかりません。", " not found."),
+        ("書き込むファイルデータがありません。", "No file data loaded for writing."),
+        ("照合するファイルデータがありません。", "No file data loaded for verification."),
+        ("有効な iNES (.nes) ヘッダではありません:", "Invalid iNES (.nes) header:"),
+        ("は UV-EPROM (紫外線消去型) のため、電気消去コマンドは実行できません。紫外線イレーサーで消去してください。", "is a UV-EPROM and cannot be electrically erased. Use a UV eraser."),
+    ]
+    for jp, en in replacements:
+        text = text.replace(jp, en)
+    return text
+
+
+def _find_offline_chip(chip_name: str, vendor_name: str, lang: str = "ja") -> dict[str, Any]:
     q_name = chip_name.strip().upper()
     q_vendor = vendor_name.strip().upper()
     for c in OFFLINE_CHIPS:
@@ -78,6 +108,8 @@ def _find_offline_chip(chip_name: str, vendor_name: str) -> dict[str, Any]:
                 "vcc": "-",
                 "vpp": "-",
             }
+    if _norm_lang(lang) == "en":
+        raise leaper3c.LeaperError(f"Chip '{chip_name}' not found in offline reference catalog.")
     raise leaper3c.LeaperError(f"未接続時の参照カタログに '{chip_name}' が見つかりません。")
 
 
@@ -115,7 +147,8 @@ class UiState:
         with self.job_lock:
             self.job["logs"] = []
 
-    def get_status(self, quick: bool = False) -> dict[str, Any]:
+    def get_status(self, quick: bool = False, lang: str = "ja") -> dict[str, Any]:
+        lang = _norm_lang(lang)
         acquired = self.usb_lock.acquire(blocking=not quick)
         if not acquired:
             return {"busy": True}
@@ -124,7 +157,7 @@ class UiState:
             try:
                 backend = self.backend_factory()
             except leaper3c.LeaperError as exc:
-                return {"connected": False, "error": str(exc)}
+                return {"connected": False, "error": _localize_error(str(exc), lang)}
             try:
                 lp = leaper3c.Leaper3C(backend)
                 info = lp.get_info()
@@ -142,7 +175,7 @@ class UiState:
                     "status_hex": st.hex(" "),
                 }
             except Exception as exc:
-                return {"connected": False, "error": str(exc)}
+                return {"connected": False, "error": _localize_error(str(exc), lang)}
             finally:
                 close_fn = getattr(backend, "close", None)
                 if close_fn:
@@ -180,12 +213,13 @@ class UiState:
                 if close_fn:
                     close_fn()
 
-    def get_chip_info(self, chip_name: str, vendor_name: str) -> dict[str, Any]:
+    def get_chip_info(self, chip_name: str, vendor_name: str, lang: str = "ja") -> dict[str, Any]:
+        lang = _norm_lang(lang)
         with self.usb_lock:
             try:
                 backend = self.backend_factory()
             except leaper3c.LeaperError:
-                return _find_offline_chip(chip_name, vendor_name)
+                return _find_offline_chip(chip_name, vendor_name, lang=lang)
             try:
                 lp = leaper3c.Leaper3C(backend)
                 chip = lp.find_chip(chip_name, vendor_name or None)
@@ -206,7 +240,7 @@ class UiState:
                 }
             except leaper3c.LeaperError:
                 try:
-                    return _find_offline_chip(chip_name, vendor_name)
+                    return _find_offline_chip(chip_name, vendor_name, lang=lang)
                 except leaper3c.LeaperError:
                     raise
             finally:
@@ -214,7 +248,8 @@ class UiState:
                 if close_fn:
                     close_fn()
 
-    def inspect_uploaded_file(self, filename: str, data: bytes) -> dict[str, Any]:
+    def inspect_uploaded_file(self, filename: str, data: bytes, lang: str = "ja") -> dict[str, Any]:
+        lang = _norm_lang(lang)
         if len(data) >= 16 and data[:4] == b"NES\x1a":
             prg_banks = data[4]
             chr_banks = data[5]
@@ -231,7 +266,12 @@ class UiState:
             prg_size = prg_banks * 16384
             chr_size = chr_banks * 8192
             if len(data) < offset + prg_size + chr_size:
-                raise leaper3c.LeaperError(".nes ファイルサイズがヘッダ定義より不足しています。")
+                msg = (
+                    ".nes file is smaller than specified in its iNES header."
+                    if lang == "en"
+                    else ".nes ファイルサイズがヘッダ定義より不足しています。"
+                )
+                raise leaper3c.LeaperError(msg)
             prg = data[offset : offset + prg_size]
             chr_data = data[offset + prg_size : offset + prg_size + chr_size]
             parts = [
@@ -259,11 +299,18 @@ class UiState:
                         "hex_preview": format_hex_preview(chr_data, 512),
                     }
                 )
-            trainer_note = " / Trainer 512B 含む" if trainer_bytes else ""
-            self._log(
-                f"{nes_format} ヘッダ検出 ({offset} bytes{trainer_note}) → "
-                f"ヘッダを自動削除して PRG={len(prg)}B / CHR={len(chr_data)}B を抽出 ({filename})"
-            )
+            if lang == "en":
+                trainer_note = " incl. 512B trainer" if trainer_bytes else ""
+                self._log(
+                    f"{nes_format} header detected ({offset} bytes{trainer_note}) -> "
+                    f"stripped automatically; PRG={len(prg)}B, CHR={len(chr_data)}B ({filename})"
+                )
+            else:
+                trainer_note = " / Trainer 512B 含む" if trainer_bytes else ""
+                self._log(
+                    f"{nes_format} ヘッダ検出 ({offset} bytes{trainer_note}) → "
+                    f"ヘッダを自動削除して PRG={len(prg)}B / CHR={len(chr_data)}B を抽出 ({filename})"
+                )
             return {
                 "is_nes": True,
                 "filename": filename,
@@ -276,7 +323,10 @@ class UiState:
                 "parts": parts,
             }
 
-        self._log(f"バイナリ読込: {filename} ({len(data)} bytes / iNES ヘッダなし)")
+        if lang == "en":
+            self._log(f"Loaded binary: {filename} ({len(data)} bytes / no iNES header)")
+        else:
+            self._log(f"バイナリ読込: {filename} ({len(data)} bytes / iNES ヘッダなし)")
         return {
             "is_nes": False,
             "filename": filename,
@@ -289,17 +339,25 @@ class UiState:
             "hex_preview": format_hex_preview(data, 512),
         }
 
-    def start_action(self, payload: dict[str, Any]) -> int:
+    def start_action(self, payload: dict[str, Any], lang: str = "ja") -> int:
+        lang = _norm_lang(lang)
+        payload_with_lang = dict(payload)
+        payload_with_lang["lang"] = lang
         with self.job_lock:
             if self.job["running"]:
-                raise leaper3c.LeaperError("別の処理が実行中です。完了までお待ちください。")
+                msg = (
+                    "Another operation is already running. Please wait."
+                    if lang == "en"
+                    else "別の処理が実行中です。完了までお待ちください。"
+                )
+                raise leaper3c.LeaperError(msg)
             job_id = int(self.job["id"]) + 1
             self.job.update(
                 {
                     "id": job_id,
                     "running": True,
                     "action": str(payload.get("action", "")),
-                    "phase": "Starting",
+                    "phase": "Starting" if lang == "en" else "開始中",
                     "done": 0,
                     "total": 0,
                     "pct": 0,
@@ -309,7 +367,7 @@ class UiState:
                 }
             )
 
-        t = threading.Thread(target=self._run_action_worker, args=(job_id, payload), daemon=True)
+        t = threading.Thread(target=self._run_action_worker, args=(job_id, payload_with_lang), daemon=True)
         t.start()
         return job_id
 
@@ -322,6 +380,8 @@ class UiState:
             self.job["pct"] = pct
 
     def _run_action_worker(self, job_id: int, payload: dict[str, Any]) -> None:
+        lang = _norm_lang(str(payload.get("lang", "ja")))
+        en = lang == "en"
         action = str(payload.get("action", ""))
         chip_name = str(payload.get("chip", ""))
         vendor = str(payload.get("vendor", ""))
@@ -342,29 +402,35 @@ class UiState:
 
                     res: dict[str, Any] = {}
                     if action == "blank-check":
-                        self._update_progress("ブランクチェック中...", 0, 1)
+                        self._update_progress("Blank checking..." if en else "ブランクチェック中...", 0, 1)
                         st = lp.blank_check(chip)
-                        self._update_progress("ブランクチェック完了", 1, 1)
-                        self._log(f"ブランクチェック 正常 (status={st.hex(' ')})")
-                        res = {"message": "ブランクチェック PASS（全 0xFF）", "status": st.hex(" ")}
+                        self._update_progress("Blank check done" if en else "ブランクチェック完了", 1, 1)
+                        self._log(("Blank check OK" if en else "ブランクチェック 正常") + f" (status={st.hex(' ')})")
+                        res = {
+                            "message": "Blank Check PASS (all 0xFF)" if en else "ブランクチェック PASS（全 0xFF）",
+                            "status": st.hex(" "),
+                        }
 
                     elif action == "erase":
-                        self._update_progress("デバイス消去中...", 0, 1)
+                        self._update_progress("Erasing device..." if en else "デバイス消去中...", 0, 1)
                         st = lp.erase(chip)
-                        self._update_progress("消去完了", 1, 1)
-                        self._log(f"デバイス消去 正常 (status={st.hex(' ')})")
-                        res = {"message": "消去 (イレース) PASS", "status": st.hex(" ")}
+                        self._update_progress("Erase complete" if en else "消去完了", 1, 1)
+                        self._log(("Erase OK" if en else "デバイス消去 正常") + f" (status={st.hex(' ')})")
+                        res = {"message": "Erase PASS" if en else "消去 (イレース) PASS", "status": st.hex(" ")}
 
                     elif action == "read":
-                        data = lp.read_chip(chip, progress_cb=lambda d, tot: self._update_progress("読出し中", d, tot))
+                        data = lp.read_chip(
+                            chip,
+                            progress_cb=lambda d, tot: self._update_progress("Reading..." if en else "読出し中", d, tot),
+                        )
                         self.last_buffer = data
                         self.last_filename = f"{chip.name.lower()}_readback.bin"
                         crc = f"0x{zlib.crc32(data) & 0xFFFFFFFF:08X}"
                         s16 = f"0x{leaper3c.sum16(data):08X}"
                         sha = hashlib.sha256(data).hexdigest()
-                        self._log(f"読出し完了: {len(data)} bytes CRC32={crc}")
+                        self._log(("Read complete:" if en else "読出し完了:") + f" {len(data)} bytes CRC32={crc}")
                         res = {
-                            "message": f"読出し PASS ({len(data)} バイト)",
+                            "message": f"Read PASS ({len(data)} bytes)" if en else f"読出し PASS ({len(data)} バイト)",
                             "size": len(data),
                             "crc32": crc,
                             "sum16": s16,
@@ -375,75 +441,94 @@ class UiState:
 
                     elif action == "verify":
                         if not raw:
-                            raise leaper3c.LeaperError("照合するファイルデータがありません。")
+                            raise leaper3c.LeaperError("No file data loaded for verification." if en else "照合するファイルデータがありません。")
                         expected = leaper3c.pad_image_to_chip(raw, params.size_bytes, pad_mode)
-                        actual = lp.read_chip(chip, progress_cb=lambda d, tot: self._update_progress("ベリファイ読出し中", d, tot))
+                        actual = lp.read_chip(
+                            chip,
+                            progress_cb=lambda d, tot: self._update_progress("Reading to verify..." if en else "ベリファイ読出し中", d, tot),
+                        )
                         mm = leaper3c.verify_buffers(expected, actual)
                         if mm is not None:
                             off, exp_b, act_b = mm
                             raise leaper3c.LeaperError(
-                                f"不一致 0x{off:05X}: 期待値=0x{exp_b:02X}, 実読値=0x{act_b:02X}"
+                                f"Mismatch at 0x{off:05X}: expected=0x{exp_b:02X}, actual=0x{act_b:02X}"
+                                if en
+                                else f"不一致 0x{off:05X}: 期待値=0x{exp_b:02X}, 実読値=0x{act_b:02X}"
                             )
                         crc = f"0x{zlib.crc32(actual) & 0xFFFFFFFF:08X}"
-                        self._log(f"ベリファイ正常: 100% 一致 CRC32={crc}")
-                        res = {"message": f"ベリファイ PASS (100% 一致 / CRC32={crc})", "crc32": crc}
+                        self._log(("Verify OK: 100% match" if en else "ベリファイ正常: 100% 一致") + f" CRC32={crc}")
+                        res = {
+                            "message": f"Verify PASS (100% match / CRC32={crc})" if en else f"ベリファイ PASS (100% 一致 / CRC32={crc})",
+                            "crc32": crc,
+                        }
 
                     elif action == "program":
                         if not raw:
-                            raise leaper3c.LeaperError("書き込むファイルデータがありません。")
+                            raise leaper3c.LeaperError("No file data loaded for writing." if en else "書き込むファイルデータがありません。")
                         image = leaper3c.pad_image_to_chip(raw, params.size_bytes, pad_mode)
                         if do_erase and not chip.is_uv_eprom:
-                            self._update_progress("事前消去中...", 0, 1)
+                            self._update_progress("Pre-erasing..." if en else "事前消去中...", 0, 1)
                             lp.erase(chip)
-                            self._log("事前消去 正常")
+                            self._log("Pre-erase OK" if en else "事前消去 正常")
 
-                        self._update_progress("事前ブランクチェック中...", 0, 1)
+                        self._update_progress("Pre-blank checking..." if en else "事前ブランクチェック中...", 0, 1)
                         lp.blank_check(chip)
-                        self._log("事前ブランクチェック 正常")
+                        self._log("Pre-blank check OK" if en else "事前ブランクチェック 正常")
 
                         t0 = time.time()
-                        lp.program_chip(chip, image, progress_cb=lambda d, tot: self._update_progress("書込み中", d, tot))
+                        lp.program_chip(
+                            chip,
+                            image,
+                            progress_cb=lambda d, tot: self._update_progress("Programming..." if en else "書込み中", d, tot),
+                        )
                         elapsed = time.time() - t0
-                        self._log(f"書込み完了 ({elapsed:.2f}秒)")
+                        self._log(f"Program complete ({elapsed:.2f}s)" if en else f"書込み完了 ({elapsed:.2f}秒)")
 
                         if do_verify:
-                            actual = lp.read_chip(chip, progress_cb=lambda d, tot: self._update_progress("ベリファイ照合中", d, tot))
+                            actual = lp.read_chip(
+                                chip,
+                                progress_cb=lambda d, tot: self._update_progress("Verifying..." if en else "ベリファイ照合中", d, tot),
+                            )
                             mm = leaper3c.verify_buffers(image, actual)
                             if mm is not None:
                                 off, exp_b, act_b = mm
                                 raise leaper3c.LeaperError(
-                                    f"ベリファイ不一致 0x{off:05X}: 期待値=0x{exp_b:02X}, 実読値=0x{act_b:02X}"
+                                    f"Verify mismatch at 0x{off:05X}: expected=0x{exp_b:02X}, actual=0x{act_b:02X}"
+                                    if en
+                                    else f"ベリファイ不一致 0x{off:05X}: 期待値=0x{exp_b:02X}, 実読値=0x{act_b:02X}"
                                 )
-                            self._log("ベリファイ 正常 (100% 一致)")
+                            self._log("Verify OK (100% match)" if en else "ベリファイ 正常 (100% 一致)")
 
                         crc = f"0x{zlib.crc32(image) & 0xFFFFFFFF:08X}"
-                        res = {
-                            "message": f"書込み{'＆ベリファイ' if do_verify else ''} PASS ({elapsed:.2f}秒, CRC32={crc})",
-                            "crc32": crc,
-                            "elapsed": round(elapsed, 2),
-                        }
+                        msg_done = (
+                            f"Program{' & Verify' if do_verify else ''} PASS ({elapsed:.2f}s, CRC32={crc})"
+                            if en
+                            else f"書込み{'＆ベリファイ' if do_verify else ''} PASS ({elapsed:.2f}秒, CRC32={crc})"
+                        )
+                        res = {"message": msg_done, "crc32": crc, "elapsed": round(elapsed, 2)}
                     else:
-                        raise leaper3c.LeaperError(f"未対応のアクション: {action}")
+                        raise leaper3c.LeaperError(f"Unsupported action: {action}" if en else f"未対応のアクション: {action}")
 
                     with self.job_lock:
                         if self.job["id"] == job_id:
                             self.job["running"] = False
                             self.job["ok"] = True
                             self.job["pct"] = 100
-                            self.job["phase"] = "完了"
+                            self.job["phase"] = "Complete" if en else "完了"
                             self.job["result"] = res
                 finally:
                     close_fn = getattr(backend, "close", None)
                     if close_fn:
                         close_fn()
         except Exception as exc:
-            self._log(f"ERROR: {exc}")
+            err_text = _localize_error(str(exc), lang)
+            self._log(f"ERROR: {err_text}")
             with self.job_lock:
                 if self.job["id"] == job_id:
                     self.job["running"] = False
                     self.job["ok"] = False
-                    self.job["phase"] = "Failed"
-                    self.job["error"] = str(exc)
+                    self.job["phase"] = "Failed" if en else "失敗"
+                    self.job["error"] = err_text
 
 
 def format_hex_preview(data: bytes, max_bytes: int = 512) -> str:
@@ -589,7 +674,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>LEAPER-3C ROMライター UI <span class="subver" data-i18n="subver">(macOS版)</span></h1>
+  <h1><span data-i18n="appTitle">LEAPER-3C ROMライター UI</span> <span class="subver" data-i18n="subver">(macOS版)</span></h1>
   <div class="row">
     <div class="ctl-inline">
       <span data-i18n="lblLang">言語:</span>
@@ -695,6 +780,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <script>
 const I18N = {
   ja: {
+    appTitle: "LEAPER-3C ROMライター UI",
     subver: "(macOS版)",
     lblLang: "言語:",
     lblTheme: "テーマ:",
@@ -761,6 +847,7 @@ const I18N = {
     confirmAction: (act, c) => `${act.toUpperCase()} を実行しますか？\nIC: ${c.vendor} ${c.name}\n(右側SLAVEソケット・下詰め・12V電源を確認してください)`
   },
   en: {
+    appTitle: "LEAPER-3C ROM Programmer UI",
     subver: "(macOS)",
     lblLang: "Language:",
     lblTheme: "Theme:",
@@ -862,7 +949,10 @@ function setLanguage(lang) {
   });
   const cf = document.getElementById("chipFilter");
   if (cf) cf.placeholder = t("chipFilterPh");
-  if (lastStatusData) renderStatusData(lastStatusData);
+  if (lastStatusData) {
+    renderStatusData(lastStatusData);
+    if (!pollTimer) refreshStatus(true);
+  }
   if (lastInspectInfo) renderInspectNotice(lastInspectInfo);
   if (currentChip) {
     document.getElementById("chipMeta").innerHTML = t("chipMetaHtml")(currentChip);
@@ -910,11 +1000,13 @@ function updateHwButtons() {
 }
 
 async function api(url, body) {
+  const headers = { "X-Ui-Lang": curLang };
+  if (body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, body ? {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body)
-  } : undefined);
+  } : { headers });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -1206,6 +1298,9 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             return
 
+        def _ui_lang(self) -> str:
+            return _norm_lang(self.headers.get("X-Ui-Lang", "ja"))
+
         def _send_json(self, obj: Any, status: int = HTTPStatus.OK) -> None:
             raw = json.dumps(obj).encode("utf-8")
             self.send_response(status)
@@ -1232,14 +1327,14 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                 return
             if self.path == "/api/status" or self.path.startswith("/api/status?"):
                 quick = "quick=1" in self.path
-                self._send_json(state.get_status(quick=quick))
+                self._send_json(state.get_status(quick=quick, lang=self._ui_lang()))
                 return
             if self.path == "/api/chips":
                 try:
                     chips, source = state.get_chips()
                     self._send_json({"chips": chips, "source": source})
                 except Exception as exc:
-                    self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                    self._send_json({"error": _localize_error(str(exc), self._ui_lang())}, HTTPStatus.BAD_REQUEST)
                 return
             if self.path == "/api/job":
                 with state.job_lock:
@@ -1257,17 +1352,18 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
             self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
 
         def do_POST(self) -> None:  # noqa: N802
+            lang = self._ui_lang()
             try:
                 body = self._read_json()
                 if self.path == "/api/chip-info":
-                    self._send_json(state.get_chip_info(body.get("name", ""), body.get("vendor", "")))
+                    self._send_json(state.get_chip_info(body.get("name", ""), body.get("vendor", ""), lang=lang))
                     return
                 if self.path == "/api/inspect-file":
                     raw = base64.b64decode(body.get("data_b64", ""))
-                    self._send_json(state.inspect_uploaded_file(body.get("filename", "rom.bin"), raw))
+                    self._send_json(state.inspect_uploaded_file(body.get("filename", "rom.bin"), raw, lang=lang))
                     return
                 if self.path == "/api/action":
-                    jid = state.start_action(body)
+                    jid = state.start_action(body, lang=lang)
                     self._send_json({"job_id": jid})
                     return
                 if self.path == "/api/clear-logs":
@@ -1276,7 +1372,7 @@ def make_handler(state: UiState) -> type[BaseHTTPRequestHandler]:
                     return
                 self._send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             except Exception as exc:
-                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                self._send_json({"error": _localize_error(str(exc), lang)}, HTTPStatus.BAD_REQUEST)
 
     return Handler
 

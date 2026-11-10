@@ -318,6 +318,21 @@ class TestLeaper3C(unittest.TestCase):
                 state.usb_lock.release()
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status?quick=1") as r:
                 self.assertFalse(json.loads(r.read().decode("utf-8"))["connected"])
+
+            # Verify English localization via X-Ui-Lang header for disconnected errors
+            en_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/status",
+                headers={"X-Ui-Lang": "en"},
+            )
+            with urllib.request.urlopen(en_req) as r:
+                en_st = json.loads(r.read().decode("utf-8"))
+                self.assertFalse(en_st["connected"])
+            err_msg = leaper3c_ui._localize_error(
+                "LEAPER-3C (VID=0x04CE, PID=0x0A3C) が見つかりません。USBケーブルと12V電源スイッチを確認してください。",
+                "en",
+            )
+            self.assertNotIn("見つかりません", err_msg)
+            self.assertIn("check the USB cable", err_msg)
         finally:
             srv.shutdown()
             srv.server_close()
